@@ -7,15 +7,15 @@ html {
 }
 
 body {
-  @apply bg-gray-50 text-slate-900 antialiased;
+  @apply bg-[#f4f6f8] text-slate-900 antialiased;
 }
 
 .table-head {
-  @apply border-b border-gray-100 text-left text-xs font-medium uppercase tracking-wide text-gray-500;
+  @apply border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
 }
 
 .table-cell {
-  @apply border-b border-gray-100 py-3 text-sm;
+  @apply border-b border-slate-100 py-3.5 text-sm text-slate-700;
 }
 
 @keyframes fadeIn {

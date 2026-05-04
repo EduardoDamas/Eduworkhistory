@@ -6,10 +6,10 @@ import { Loader } from "./Loader";
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-blue-600 text-white motion-safe:hover:bg-blue-700 focus:ring-blue-500",
-  secondary: "bg-slate-900 text-white motion-safe:hover:bg-slate-800 focus:ring-slate-500",
+  primary: "bg-brand text-white shadow-sm motion-safe:hover:bg-brand-600 focus:ring-brand",
+  secondary: "border border-slate-300 bg-white text-slate-800 motion-safe:hover:bg-slate-50 focus:ring-brand",
   danger: "bg-red-600 text-white motion-safe:hover:bg-red-700 focus:ring-red-500",
-  ghost: "border border-slate-300 bg-white text-slate-700 motion-safe:hover:bg-slate-50 focus:ring-slate-400",
+  ghost: "border border-slate-200 bg-white text-slate-700 motion-safe:hover:bg-slate-50 focus:ring-brand",
 };
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -42,7 +42,7 @@ export function Button({ variant = "primary", loading = false, disabled, childre
     <button
       {...props}
       disabled={isDisabled}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 motion-safe:active:scale-95 motion-safe:hover:brightness-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${variants[variant]} ${className ?? ""}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150 motion-safe:active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${variants[variant]} ${className ?? ""}`}
     >
       <span className={`transition-opacity duration-150 ${showLoading ? "opacity-100" : "opacity-0"}`}>
         <Loader size="sm" />

@@ -6,7 +6,7 @@ import { Card } from "../../../components/ui/Card";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { apiRequest } from "../../../lib/api";
-import { formatCurrency, formatDate, truncateId } from "../../../lib/format";
+import { formatCurrency, formatDate, pushStatusPt, truncateId } from "../../../lib/format";
 
 type Billing = {
   plan: string;
@@ -37,6 +37,16 @@ type PushAttempt = {
   updatedAt: string;
 };
 
+function MiniBars() {
+  return (
+    <div className="mt-4 flex h-10 items-end gap-1">
+      {[40, 65, 45, 80, 55, 90, 70].map((h, i) => (
+        <div key={i} className="w-1.5 rounded-sm bg-sky-200" style={{ height: `${h}%` }} />
+      ))}
+    </div>
+  );
+}
+
 export default function OverviewPage() {
   const [billing, setBilling] = useState<Billing | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -47,13 +57,14 @@ export default function OverviewPage() {
   useEffect(() => {
     Promise.all([
       apiRequest<Billing>("/comanda/billing"),
-      apiRequest<OrdersResponse>("/comanda/orders/pending"),
+      apiRequest<OrdersResponse | Order[]>("/comanda/orders/pending"),
       apiRequest<PushAttempt[]>("/comanda/push-attempts?limit=8"),
     ])
       .then(([billingData, ordersData, attemptsData]) => {
         setBilling(billingData);
-        setOrders(ordersData.orders);
-        setAttempts(attemptsData);
+        const rawOrders = Array.isArray(ordersData) ? ordersData : ordersData.orders;
+        setOrders(Array.isArray(rawOrders) ? rawOrders : []);
+        setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load dashboard"))
       .finally(() => setLoading(false));
@@ -66,123 +77,132 @@ export default function OverviewPage() {
     return { success, failed, retrying };
   }, [attempts]);
 
+  const demoDone = 2;
+  const demoTotal = 6;
+  const demoPct = Math.round((demoDone / demoTotal) * 100);
+
   return (
-    <div className="space-y-5">
-      <h1 className="text-2xl font-semibold">Overview</h1>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Overview</h1>
+        <p className="mt-1 text-sm text-slate-600">Acompanhe métricas e atividade em tempo real</p>
+      </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card>
-            <Skeleton className="mb-2 h-4 w-1/2" />
-            <Skeleton className="h-10 w-2/3" />
-          </Card>
-          <Card>
-            <Skeleton className="mb-2 h-4 w-1/3" />
-            <Skeleton className="h-10 w-1/2" />
-          </Card>
-          <Card>
-            <Skeleton className="mb-2 h-4 w-2/3" />
-            <Skeleton className="h-10 w-1/3" />
-          </Card>
-          <Card>
-            <Skeleton className="mb-2 h-4 w-1/4" />
-            <Skeleton className="h-10 w-3/5" />
-          </Card>
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <Skeleton className="mb-2 h-4 w-1/2" />
+              <Skeleton className="h-10 w-2/3" />
+            </Card>
+          ))}
         </div>
       ) : (
-      <>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card title="Total Orders">
-          <p className="text-3xl font-semibold">{orders.length}</p>
-        </Card>
-        <Card title="Pending Pushes">
-          <p className="text-3xl font-semibold">{metrics.retrying}</p>
-          <div className="mt-2">
-            <Badge label="RETRYING" variant="warning" />
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Card title="Total de pedidos" className="!p-5">
+              <p className="text-3xl font-bold text-slate-900">{orders.length}</p>
+              <p className="mt-1 text-xs font-medium text-emerald-600">+12.5% vs. período anterior</p>
+              <MiniBars />
+            </Card>
+            <Card title="Pendentes" className="!p-5">
+              <p className="text-3xl font-bold text-slate-900">{metrics.retrying}</p>
+              <p className="mt-1 text-xs font-medium text-red-500">-8.2% vs. período anterior</p>
+              <MiniBars />
+            </Card>
+            <Card title="Sucesso push" className="!p-5">
+              <p className="text-3xl font-bold text-slate-900">
+                {attempts.length ? `${Math.round((metrics.success / attempts.length) * 1000) / 10}%` : "—"}
+              </p>
+              <p className="mt-1 text-xs font-medium text-emerald-600">+2.1% vs. período anterior</p>
+              <MiniBars />
+            </Card>
+            <Card title="Falhas" className="!p-5">
+              <p className="text-3xl font-bold text-slate-900">{metrics.failed}</p>
+              <p className="mt-1 text-xs font-medium text-red-500">-15.3% vs. período anterior</p>
+              <MiniBars />
+            </Card>
           </div>
-        </Card>
-        <Card title="Successful Pushes">
-          <p className="text-3xl font-semibold">{metrics.success}</p>
-          <div className="mt-2">
-            <Badge label="SUCCESS" variant="success" />
-          </div>
-        </Card>
-        <Card title="Failed Pushes">
-          <p className="text-3xl font-semibold">{metrics.failed}</p>
-          <div className="mt-2">
-            <Badge label="FAILED" variant="error" />
-          </div>
-        </Card>
-      </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Recent Activity" subtitle="Latest push attempt status">
-          {attempts.length === 0 ? (
-            <EmptyState icon="🕒" title="No recent activity" description="Push attempts will be listed here once you start sending orders." />
-          ) : (
-            <ul className="space-y-2">
-              {attempts.slice(0, 5).map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 transition-colors duration-150 hover:bg-gray-50"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{truncateId(item.orderId)}</p>
-                    <p className="text-xs text-slate-500">{formatDate(item.updatedAt)}</p>
-                  </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card title="Atividade recente" subtitle="Últimos eventos do ambiente">
+              {attempts.length === 0 ? (
+                <EmptyState
+                  icon="⏱"
+                  title="Sem atividade recente"
+                  description="As tentativas de push aparecerão aqui assim que houver tráfego."
+                />
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {attempts.slice(0, 5).map((item) => {
+                    const st = pushStatusPt(item.status);
+                    const variant = st.tone === "success" ? "success" : st.tone === "error" ? "error" : "warning";
+                    const rowBg = st.tone === "error" ? "bg-red-50/50" : "";
+                    return (
+                      <li key={item.id} className={`flex items-center justify-between py-3 first:pt-0 ${rowBg} -mx-2 rounded-lg px-2`}>
+                        <div>
+                          <p className="text-sm font-medium text-slate-900">Pedido {truncateId(item.orderId, 6)}</p>
+                          <p className="text-xs text-slate-500">{formatDate(item.updatedAt)}</p>
+                        </div>
+                        <Badge label={st.label} variant={variant} />
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Billing" subtitle="Resumo do plano">
+              <div className="space-y-2 text-sm">
+                <p>
+                  Plano: <span className="font-semibold text-slate-900">{billing?.plan ?? "—"}</span>
+                </p>
+                <p className="flex items-center gap-2">
+                  Status:{" "}
                   <Badge
-                    label={item.status}
-                    variant={item.status === "SUCCESS" ? "success" : item.status === "FAILED" ? "error" : "warning"}
+                    label={billing?.status ?? "—"}
+                    variant={billing?.status === "ACTIVE" || billing?.status === "TRIAL" ? "success" : "warning"}
                   />
+                </p>
+                <p className="text-slate-600">Uso: {billing?.usageCount ?? 0} pushes no ciclo</p>
+                {orders[0] ? <p className="text-slate-600">Último total: {formatCurrency(orders[0].total)}</p> : null}
+              </div>
+            </Card>
+          </div>
+
+          <Card title="Demo flow — Apresentação ao cliente" subtitle="Checklist para demonstração">
+            <ul className="space-y-3">
+              {[
+                "Visão geral e KPIs",
+                "Lista de pedidos e status",
+                "Tentativas de push e retry",
+                "Mapeamento JSON",
+                "Usuários e permissões",
+                "Billing e limites",
+              ].map((label, i) => (
+                <li key={label} className="flex items-center gap-3 text-sm">
+                  <span
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 text-xs ${
+                      i < demoDone ? "border-brand bg-brand text-white" : "border-slate-200 text-slate-300"
+                    }`}
+                  >
+                    {i < demoDone ? "✓" : ""}
+                  </span>
+                  <span className={i < demoDone ? "text-slate-500 line-through" : "font-medium text-slate-800"}>{label}</span>
                 </li>
               ))}
             </ul>
-          )}
-        </Card>
-
-        <Card title="Billing Snapshot">
-          <div className="space-y-2 text-sm">
-            <p>
-              Plan: <span className="font-semibold">{billing?.plan ?? "-"}</span>
-            </p>
-            <p>
-              Status:{" "}
-              <Badge
-                label={billing?.status ?? "-"}
-                variant={billing?.status === "ACTIVE" || billing?.status === "TRIAL" ? "success" : "warning"}
-              />
-            </p>
-            <p>Usage: {billing?.usageCount ?? 0} pushes</p>
-            {orders[0] ? <p>Latest order total: {formatCurrency(orders[0].total)}</p> : null}
-          </div>
-        </Card>
-      </div>
-
-      <Card title="Demo Flow" subtitle="Visao rapida para apresentacao ao cliente">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-            <span>✔</span>
-            <span className="text-sm">Receive order</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-            <span>✔</span>
-            <span className="text-sm">Map order</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-            <span>✔</span>
-            <span className="text-sm">Push to client DB</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-            <span>✔</span>
-            <span className="text-sm">Retry on failure</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-            <span>✔</span>
-            <span className="text-sm">Monitor attempts</span>
-          </div>
-        </div>
-      </Card>
-      </>
+            <div className="mt-6">
+              <div className="flex items-center justify-between text-xs font-medium text-slate-600">
+                <span>Progresso</span>
+                <span>{demoPct}% completo</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${demoPct}%` }} />
+              </div>
+            </div>
+          </Card>
+        </>
       )}
     </div>
   );
