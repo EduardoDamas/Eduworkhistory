@@ -1,0 +1,20 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "changes": [
+        {
+          "value": {
+            "messages": [
+              {
+                "from": "5511999999001",
+                "type": "text",
+                "text": { "body": "Rua das Flores 100, Centro" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
