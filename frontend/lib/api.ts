@@ -116,9 +116,29 @@ async function mockApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   if (path.startsWith("/comanda/push-attempts/") && path.endsWith("/retry") && method === "POST") {
     return { queued: true } as T;
   }
-  if (path === "/comanda/billing" && method === "GET") {
+  if (path === "/saas/billing" && method === "GET") {
     const demoBilling = getDemoBilling();
     return demoBilling as T;
+  }
+  if (path === "/integrations/health" && method === "GET") {
+    return {
+      ifood: {
+        enabled: true,
+        clientIdConfigured: true,
+        clientSecretConfigured: true,
+        merchantIdConfigured: true,
+      },
+      twilio: {
+        enabled: true,
+        accountSidConfigured: true,
+        authTokenConfigured: true,
+        whatsappFromConfigured: true,
+        whatsappToConfigured: true,
+        sandboxJoinCodeConfigured: true,
+        sandboxFrom: "whatsapp:+14155238886",
+      },
+      testMode: true,
+    } as T;
   }
   if (path === "/comanda/settings/mapping" && method === "GET") {
     return {

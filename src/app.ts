@@ -14,6 +14,7 @@ import { createWhatsAppAccountRoutes } from "./modules/whatsapp_accounts/whatsap
 import { createComandaRoutes } from "./modules/comanda/comanda.routes.js";
 import { createProductRoutes } from "./modules/products/product.routes.js";
 import { createLegacyRoutes } from "./modules/legacy_connectors/legacy.routes.js";
+import { createIntegrationRoutes } from "./modules/integrations/integrations.routes.js";
 import { logger } from "./lib/logger.js";
 
 export function createApp(): Application {
@@ -43,6 +44,7 @@ export function createApp(): Application {
   app.use("/whatsapp/accounts", tenantAuth, createWhatsAppAccountRoutes());
   app.use("/comanda", tenantAuth, createComandaRoutes());
   app.use("/legacy", tenantAuth, createLegacyRoutes());
+  app.use("/integrations", tenantAuth, createIntegrationRoutes());
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     logger.error({ err }, "unhandled_error");

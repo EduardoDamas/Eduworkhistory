@@ -39,4 +39,15 @@ export const webhookController = {
       res.status(500).json({ ok: false, error: "Internal server error" });
     }
   },
+
+  async handleTwilioWhatsapp(req: Request, res: Response): Promise<void> {
+    try {
+      const result = webhookService.handleTwilioWhatsapp(req.body);
+      // Twilio retries aggressively; acknowledge fast.
+      res.status(200).json(result);
+    } catch (err) {
+      logger.error({ err }, "twilio_webhook_unhandled_error");
+      res.status(500).json({ ok: false, error: "Internal server error" });
+    }
+  },
 };

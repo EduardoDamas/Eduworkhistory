@@ -10,5 +10,7 @@ export function createComandaRoutes(): Router {
     void comandaController.updateProductAvailability(req, res),
   );
   r.get("/catalog", (req, res) => void comandaController.listCatalog(req, res));
+  r.get("/push-attempts", (req, res) => void comandaController.listPushAttempts(req, res));
+  r.post("/push-attempts/:id/retry", (req, res) => void comandaController.retryPushAttempt(req, res));
   return r;
 }

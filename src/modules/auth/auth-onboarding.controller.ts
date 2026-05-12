@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { logger } from "../../lib/logger.js";
 import { authService } from "./auth.service.js";
 import { getAuthenticatedUser } from "./middleware.js";
+import { getTenant } from "./tenant-context.js";
 
 export const authOnboardingController = {
   async me(req: Request, res: Response): Promise<void> {
@@ -137,6 +138,17 @@ export const authOnboardingController = {
       }
       logger.error({ err }, "auth_update_tenant_user_role_failed");
       res.status(500).json({ error: "Failed to update tenant user role" });
+    }
+  },
+
+  async billing(_req: Request, res: Response): Promise<void> {
+    try {
+      const { id: tenantId } = getTenant();
+      const payload = await authService.getTenantBilling(tenantId);
+      res.json(payload);
+    } catch (err) {
+      logger.error({ err }, "saas_billing_failed");
+      res.status(500).json({ error: "Failed to load billing" });
     }
   },
 };

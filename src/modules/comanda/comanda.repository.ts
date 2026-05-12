@@ -103,4 +103,18 @@ export const comandaRepository = {
       },
     });
   },
+
+  listClientPushAttempts(tenantId: string, limit: number) {
+    return prisma.clientPushAttempt.findMany({
+      where: { tenantId },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+    });
+  },
+
+  findClientPushAttempt(tenantId: string, id: string) {
+    return prisma.clientPushAttempt.findFirst({
+      where: { tenantId, id },
+    });
+  },
 };

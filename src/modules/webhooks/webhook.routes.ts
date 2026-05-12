@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, urlencoded } from "express";
 import { webhookController } from "./webhook.controller.js";
 
 export function createWebhookRoutes(): Router {
@@ -6,6 +6,9 @@ export function createWebhookRoutes(): Router {
 
   r.get("/whatsapp", (req, res) => void webhookController.verifyWhatsapp(req, res));
   r.post("/whatsapp", (req, res) => void webhookController.handle("whatsapp", req, res));
+  r.post("/twilio/whatsapp", urlencoded({ extended: false }), (req, res) =>
+    void webhookController.handleTwilioWhatsapp(req, res),
+  );
   r.post("/ifood", (req, res) => void webhookController.handle("ifood", req, res));
   r.post("/99food", (req, res) => void webhookController.handle("99food", req, res));
 

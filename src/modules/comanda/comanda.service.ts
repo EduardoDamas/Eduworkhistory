@@ -137,6 +137,26 @@ export const comandaService = {
       syncMetadata: row.syncMetadata ?? {},
     }));
   },
+
+  async listPushAttempts(tenantId: string, limit: number) {
+    const rows = await comandaRepository.listClientPushAttempts(tenantId, limit);
+    return rows.map((row) => ({
+      id: row.id,
+      orderId: row.orderId,
+      status: row.status,
+      attemptCount: row.attemptCount,
+      lastError: row.lastError,
+      updatedAt: row.updatedAt.toISOString(),
+    }));
+  },
+
+  async retryPushAttempt(tenantId: string, attemptId: string): Promise<{ queued: true }> {
+    const attempt = await comandaRepository.findClientPushAttempt(tenantId, attemptId);
+    if (!attempt) throw new Error("PUSH_ATTEMPT_NOT_FOUND");
+    if (attempt.status !== "FAILED") throw new Error("PUSH_ATTEMPT_NOT_RETRYABLE");
+    await legacyIntegrationService.exportOrder(attempt.orderId, tenantId);
+    return { queued: true };
+  },
 };
 
 function parseTargetStatus(value: unknown): OrderStatus | null {

@@ -37,6 +37,25 @@ type PushAttempt = {
   updatedAt: string;
 };
 
+type IntegrationsHealth = {
+  ifood: {
+    enabled: boolean;
+    clientIdConfigured: boolean;
+    clientSecretConfigured: boolean;
+    merchantIdConfigured: boolean;
+  };
+  twilio: {
+    enabled: boolean;
+    accountSidConfigured: boolean;
+    authTokenConfigured: boolean;
+    whatsappFromConfigured: boolean;
+    whatsappToConfigured: boolean;
+    sandboxJoinCodeConfigured?: boolean;
+    sandboxFrom?: string;
+  };
+  testMode?: boolean;
+};
+
 function MiniBars() {
   return (
     <div className="mt-4 flex h-10 items-end gap-1">
@@ -51,20 +70,42 @@ export default function OverviewPage() {
   const [billing, setBilling] = useState<Billing | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [attempts, setAttempts] = useState<PushAttempt[]>([]);
+  const [integrationsHealth, setIntegrationsHealth] = useState<IntegrationsHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      apiRequest<Billing>("/comanda/billing"),
+    Promise.allSettled([
+      apiRequest<Billing>("/saas/billing"),
       apiRequest<OrdersResponse | Order[]>("/comanda/orders/pending"),
       apiRequest<PushAttempt[]>("/comanda/push-attempts?limit=8"),
+      apiRequest<IntegrationsHealth>("/integrations/health"),
     ])
-      .then(([billingData, ordersData, attemptsData]) => {
-        setBilling(billingData);
-        const rawOrders = Array.isArray(ordersData) ? ordersData : ordersData.orders;
-        setOrders(Array.isArray(rawOrders) ? rawOrders : []);
-        setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
+      .then(([billingResult, ordersResult, attemptsResult, integrationsResult]) => {
+        if (billingResult.status === "fulfilled") {
+          setBilling(billingResult.value);
+        }
+        if (ordersResult.status === "fulfilled") {
+          const rawOrders = Array.isArray(ordersResult.value)
+            ? ordersResult.value
+            : ordersResult.value.orders;
+          setOrders(Array.isArray(rawOrders) ? rawOrders : []);
+        } else {
+          setOrders([]);
+        }
+        if (attemptsResult.status === "fulfilled") {
+          setAttempts(Array.isArray(attemptsResult.value) ? attemptsResult.value : []);
+        } else {
+          setAttempts([]);
+        }
+        if (integrationsResult.status === "fulfilled") {
+          setIntegrationsHealth(integrationsResult.value);
+        }
+        const hasHardFailure =
+          ordersResult.status === "rejected" || integrationsResult.status === "rejected";
+        if (hasHardFailure) {
+          setError("Failed to load part of dashboard data");
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load dashboard"))
       .finally(() => setLoading(false));
@@ -76,6 +117,18 @@ export default function OverviewPage() {
     const retrying = attempts.filter((x) => x.status === "RETRYING").length;
     return { success, failed, retrying };
   }, [attempts]);
+
+  const integrationIfoodOk = Boolean(
+    integrationsHealth?.ifood.clientIdConfigured &&
+      integrationsHealth.ifood.clientSecretConfigured &&
+      integrationsHealth.ifood.merchantIdConfigured,
+  );
+  const integrationTwilioOk = Boolean(
+    integrationsHealth?.twilio.accountSidConfigured &&
+      integrationsHealth.twilio.authTokenConfigured &&
+      integrationsHealth.twilio.whatsappFromConfigured &&
+      integrationsHealth.twilio.whatsappToConfigured,
+  );
 
   const demoDone = 2;
   const demoTotal = 6;
@@ -124,7 +177,7 @@ export default function OverviewPage() {
             </Card>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-3">
             <Card title="Atividade recente" subtitle="Últimos eventos do ambiente">
               {attempts.length === 0 ? (
                 <EmptyState
@@ -139,7 +192,10 @@ export default function OverviewPage() {
                     const variant = st.tone === "success" ? "success" : st.tone === "error" ? "error" : "warning";
                     const rowBg = st.tone === "error" ? "bg-red-50/50" : "";
                     return (
-                      <li key={item.id} className={`flex items-center justify-between py-3 first:pt-0 ${rowBg} -mx-2 rounded-lg px-2`}>
+                      <li
+                        key={item.id}
+                        className={`flex items-center justify-between py-3 first:pt-0 ${rowBg} -mx-2 rounded-lg px-2`}
+                      >
                         <div>
                           <p className="text-sm font-medium text-slate-900">Pedido {truncateId(item.orderId, 6)}</p>
                           <p className="text-xs text-slate-500">{formatDate(item.updatedAt)}</p>
@@ -168,6 +224,34 @@ export default function OverviewPage() {
                 {orders[0] ? <p className="text-slate-600">Último total: {formatCurrency(orders[0].total)}</p> : null}
               </div>
             </Card>
+
+            <Card title="Integrações de teste" subtitle="Status atual de configuração">
+              <div className="space-y-3 text-sm">
+                <p className="flex items-center justify-between gap-2">
+                  <span>iFood</span>
+                  <Badge
+                    label={integrationIfoodOk ? "CONFIGURADO" : "FALTANDO"}
+                    variant={integrationIfoodOk ? "success" : "warning"}
+                  />
+                </p>
+                <p className="flex items-center justify-between gap-2">
+                  <span>Twilio</span>
+                  <Badge
+                    label={integrationTwilioOk ? "CONFIGURADO" : "FALTANDO"}
+                    variant={integrationTwilioOk ? "success" : "warning"}
+                  />
+                </p>
+                <p className="text-slate-600">
+                  Sandbox:{" "}
+                  <span className="font-semibold">
+                    {integrationsHealth?.twilio.sandboxFrom ?? "whatsapp:+14155238886"}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  Lembrete: o tester precisa entrar no sandbox primeiro (join code).
+                </p>
+              </div>
+            </Card>
           </div>
 
           <Card title="Demo flow — Apresentação ao cliente" subtitle="Checklist para demonstração">
@@ -188,7 +272,9 @@ export default function OverviewPage() {
                   >
                     {i < demoDone ? "✓" : ""}
                   </span>
-                  <span className={i < demoDone ? "text-slate-500 line-through" : "font-medium text-slate-800"}>{label}</span>
+                  <span className={i < demoDone ? "text-slate-500 line-through" : "font-medium text-slate-800"}>
+                    {label}
+                  </span>
                 </li>
               ))}
             </ul>

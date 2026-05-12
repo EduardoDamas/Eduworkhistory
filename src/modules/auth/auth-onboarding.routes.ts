@@ -10,5 +10,6 @@ export function createAuthOnboardingRoutes(): Router {
   router.patch("/tenants/:tenantId/users/:userId/role", (req, res) =>
     void authOnboardingController.updateTenantUserRole(req, res),
   );
+  router.get("/billing", (req, res) => void authOnboardingController.billing(req, res));
   return router;
 }

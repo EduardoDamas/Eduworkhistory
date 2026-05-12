@@ -81,7 +81,32 @@ export const webhookService = {
     if (!account) return null;
     return challenge;
   },
+
+  handleTwilioWhatsapp(body: unknown): { ok: true; accepted: true } {
+    const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    const sender = asString(payload.From);
+    const text = asString(payload.Body);
+    const messageSid = asString(payload.MessageSid);
+
+    logger.info(
+      {
+        provider: "twilio",
+        channel: "whatsapp",
+        sender,
+        body: text,
+        messageSid,
+        twilioEnabled: env.TWILIO_ENABLED,
+      },
+      "twilio_whatsapp_inbound_received",
+    );
+
+    return { ok: true, accepted: true };
+  },
 };
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
 
 function validatePayload(path: WebhookSourcePath, body: unknown, hasHeaderId: boolean): void {
   if (body === null || body === undefined || typeof body !== "object") {

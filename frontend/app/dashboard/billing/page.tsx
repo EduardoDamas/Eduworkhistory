@@ -40,7 +40,7 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiRequest<Billing>("/comanda/billing")
+    apiRequest<Billing>("/saas/billing")
       .then(setBilling)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load billing"))
       .finally(() => setLoading(false));

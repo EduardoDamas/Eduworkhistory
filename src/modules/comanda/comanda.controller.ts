@@ -102,4 +102,44 @@ export const comandaController = {
       res.status(500).json({ error: "Failed to load catalog" });
     }
   },
+
+  async listPushAttempts(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: tenantId } = getTenant();
+      const raw = req.query.limit;
+      const rawStr = Array.isArray(raw) ? raw[0] : raw;
+      const parsed = typeof rawStr === "string" ? Number.parseInt(rawStr, 10) : Number.NaN;
+      const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 50;
+      const rows = await comandaService.listPushAttempts(tenantId, limit);
+      res.json(rows);
+    } catch (err) {
+      logger.error({ err }, "comanda_push_attempts_list_failed");
+      res.status(500).json({ error: "Failed to load push attempts" });
+    }
+  },
+
+  async retryPushAttempt(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: tenantId } = getTenant();
+      const attemptId = typeof req.params.id === "string" ? req.params.id : req.params.id?.[0];
+      if (!attemptId) {
+        res.status(400).json({ error: "attempt id required" });
+        return;
+      }
+      const result = await comandaService.retryPushAttempt(tenantId, attemptId);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "PUSH_ATTEMPT_NOT_FOUND") {
+        res.status(404).json({ error: "Push attempt not found" });
+        return;
+      }
+      if (msg === "PUSH_ATTEMPT_NOT_RETRYABLE") {
+        res.status(400).json({ error: "Only failed attempts can be retried" });
+        return;
+      }
+      logger.error({ err }, "comanda_push_attempt_retry_failed");
+      res.status(500).json({ error: "Failed to retry push" });
+    }
+  },
 };

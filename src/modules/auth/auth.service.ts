@@ -253,6 +253,37 @@ export const authService = {
       role: updated.role,
     };
   },
+
+  async getTenantBilling(tenantId: string): Promise<{
+    plan: string;
+    status: string;
+    usageCount: number;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    stripeConfigured: boolean;
+  }> {
+    const sub = await prisma.subscription.findUnique({ where: { tenantId } });
+    if (!sub) {
+      const now = new Date();
+      const end = new Date(now.getTime() + 30 * 86_400_000);
+      return {
+        plan: "demo",
+        status: "ACTIVE",
+        usageCount: 0,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: end.toISOString(),
+        stripeConfigured: false,
+      };
+    }
+    return {
+      plan: sub.plan,
+      status: sub.status,
+      usageCount: sub.usageCount,
+      currentPeriodStart: sub.currentPeriodStart.toISOString(),
+      currentPeriodEnd: sub.currentPeriodEnd.toISOString(),
+      stripeConfigured: Boolean(sub.stripeCustomerId && sub.stripeSubscriptionId),
+    };
+  },
 };
 
 function generateApiKey(): string {
