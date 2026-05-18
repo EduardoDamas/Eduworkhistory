@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { Source } from "@prisma/client";
 import type { Request } from "express";
 import { env } from "../../config/env.js";
@@ -8,7 +7,6 @@ import { resolveTenantFromApiKey } from "../auth/middleware.js";
 import { runWithTenant } from "../auth/tenant-context.js";
 import { inboundEventService } from "../inbound_events/inbound-event.service.js";
 import { whatsappAccountRepository } from "../whatsapp_accounts/whatsapp-account.repository.js";
-import { extractWhatsAppPhoneNumberId } from "../whatsapp/whatsapp-payload.js";
 import type { IngestWebhookResult, WebhookSourcePath, WebhookTenantResolution } from "./webhook.types.js";
 
 const PATH_TO_SOURCE: Record<WebhookSourcePath, Source> = {
@@ -27,10 +25,6 @@ export const webhookService = {
     const hasHeaderId = Boolean(headerId(req));
     validatePayload(path, body, hasHeaderId);
 
-    if (path === "whatsapp") {
-      await maybeValidateWhatsAppSignature(req, body);
-    }
-
     const externalEventId = resolveExternalEventId(path, source, body, req);
     const tenantResolution = await resolveWebhookTenant(path, req, body);
 
@@ -40,10 +34,6 @@ export const webhookService = {
         name: `tenant:${tenantResolution.tenantId}`,
         apiKey: "resolved_via_webhook",
         resolvedBy: tenantResolution.resolvedBy,
-        whatsappPhoneNumberId:
-          tenantResolution.resolvedBy === "phone_number_id"
-            ? extractWhatsAppPhoneNumberId(body) ?? undefined
-            : undefined,
       },
       () =>
         inboundEventService.ingest({
@@ -73,34 +63,71 @@ export const webhookService = {
 
   async verifyWhatsAppWebhook(
     mode: string | undefined,
-    verifyToken: string | undefined,
+    _verifyToken: string | undefined,
     challenge: string | undefined,
   ): Promise<string | null> {
-    if (mode !== "subscribe" || !verifyToken || !challenge) return null;
-    const account = await whatsappAccountRepository.findByVerifyToken(verifyToken);
-    if (!account) return null;
-    return challenge;
+    if (mode === "subscribe" && challenge) {
+      logger.warn("whatsapp_meta_verify_deprecated_use_twilio_webhook");
+    }
+    return null;
   },
 
-  handleTwilioWhatsapp(body: unknown): { ok: true; accepted: true } {
+  async handleTwilioWhatsapp(req: Request): Promise<{ ok: true; accepted: true; inboundEventId?: string; duplicate?: boolean }> {
+    const body = req.body;
     const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-    const sender = asString(payload.From);
+    const from = normalizeWhatsappAddress(asString(payload.From));
+    const to = normalizeWhatsappAddress(asString(payload.To));
     const text = asString(payload.Body);
     const messageSid = asString(payload.MessageSid);
+    const accountSid = asString(payload.AccountSid);
 
     logger.info(
       {
         provider: "twilio",
         channel: "whatsapp",
-        sender,
-        body: text,
+        from,
+        to,
+        textLength: text.length,
+        accountSid,
         messageSid,
         twilioEnabled: env.TWILIO_ENABLED,
       },
       "twilio_whatsapp_inbound_received",
     );
 
-    return { ok: true, accepted: true };
+    const tenantResolution = await resolveTwilioTenant(req, payload);
+    const sourcePayload = {
+      provider: "twilio",
+      AccountSid: accountSid,
+      MessageSid: messageSid,
+      From: from,
+      To: to,
+      Body: text,
+      raw: payload,
+    };
+    const externalEventId = messageSid || headerId(req) || `twilio:${sha256Hex(stableJsonStringify(sourcePayload))}`;
+    const result = await runWithTenant(
+      {
+        id: tenantResolution.tenantId,
+        name: `tenant:${tenantResolution.tenantId}`,
+        apiKey: "resolved_via_twilio_webhook",
+        resolvedBy: tenantResolution.resolvedBy,
+      },
+      () =>
+        inboundEventService.ingest({
+          tenantId: tenantResolution.tenantId,
+          source: Source.WHATSAPP,
+          payload: sourcePayload,
+          externalEventId,
+        }),
+    );
+
+    return {
+      ok: true,
+      accepted: true,
+      inboundEventId: result.inboundEventId,
+      duplicate: result.duplicate,
+    };
   },
 };
 
@@ -145,53 +172,10 @@ async function resolveWebhookTenant(
   req: Request,
   body: unknown,
 ): Promise<WebhookTenantResolution> {
-  if (path === "whatsapp") {
-    const phoneNumberId = extractWhatsAppPhoneNumberId(body);
-    if (phoneNumberId) {
-      const account = await whatsappAccountRepository.findByPhoneNumberId(phoneNumberId);
-      if (account) {
-        return { tenantId: account.tenantId, resolvedBy: "phone_number_id" };
-      }
-    }
-  }
-
+  if (path === "whatsapp") return resolveTwilioTenant(req, body);
   const tenant = await resolveTenantFromApiKey(req.header("x-api-key") ?? undefined);
   if (tenant) return { tenantId: tenant.id, resolvedBy: "api_key" };
   throw new WebhookValidationError("Could not resolve tenant");
-}
-
-async function maybeValidateWhatsAppSignature(
-  req: Request,
-  body: unknown,
-): Promise<void> {
-  const phoneNumberId = extractWhatsAppPhoneNumberId(body);
-  if (!phoneNumberId) {
-    logger.warn({ path: "whatsapp" }, "whatsapp_signature_skip_no_phone_number_id");
-    return;
-  }
-  const account = await whatsappAccountRepository.findByPhoneNumberId(phoneNumberId);
-  if (!account?.appSecret) {
-    logger.info({ phoneNumberId }, "whatsapp_signature_skip_no_app_secret");
-    return;
-  }
-
-  const header = req.get("x-hub-signature-256") ?? "";
-  const payload = stableJsonStringify(body);
-  const computed = `sha256=${createHmac("sha256", account.appSecret).update(payload).digest("hex")}`;
-
-  let isValid = false;
-  try {
-    isValid =
-      header.length === computed.length &&
-      timingSafeEqual(Buffer.from(header, "utf8"), Buffer.from(computed, "utf8"));
-  } catch {
-    isValid = false;
-  }
-
-  logger.info({ phoneNumberId, isValid }, "whatsapp_signature_validated");
-  if (env.WHATSAPP_REQUIRE_SIGNATURE && !isValid) {
-    throw new WebhookValidationError("Invalid WhatsApp signature");
-  }
 }
 
 function headerId(req: Request): string | null {
@@ -221,6 +205,8 @@ function resolveExternalEventId(
 function extractFromBody(path: WebhookSourcePath, body: unknown): string | null {
   const o = body as Record<string, unknown>;
   if (path === "whatsapp") {
+    const twilioSid = o.MessageSid;
+    if (typeof twilioSid === "string" && twilioSid.length > 0) return twilioSid;
     const id = digWhatsAppMessageId(o);
     if (id) return id;
   }
@@ -239,6 +225,38 @@ function extractFromBody(path: WebhookSourcePath, body: unknown): string | null 
     }
   }
   return null;
+}
+
+async function resolveTwilioTenant(
+  req: Request,
+  body: unknown,
+): Promise<WebhookTenantResolution> {
+  const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const accountSid = asString(payload.AccountSid).trim();
+  const to = normalizeWhatsappAddress(asString(payload.To));
+
+  if (accountSid && to) {
+    const account = await whatsappAccountRepository.findActiveByAccountSidAndWhatsappFrom(accountSid, to);
+    if (account) return { tenantId: account.tenantId, resolvedBy: "twilio_account_sid" };
+  }
+  if (accountSid) {
+    const account = await whatsappAccountRepository.findActiveByAccountSid(accountSid);
+    if (account) return { tenantId: account.tenantId, resolvedBy: "twilio_account_sid" };
+  }
+  if (to) {
+    const account = await whatsappAccountRepository.findActiveByWhatsappFrom(to);
+    if (account) return { tenantId: account.tenantId, resolvedBy: "twilio_whatsapp_from" };
+  }
+
+  const tenant = await resolveTenantFromApiKey(req.header("x-api-key") ?? undefined);
+  if (tenant) return { tenantId: tenant.id, resolvedBy: "api_key" };
+  throw new WebhookValidationError("Could not resolve tenant");
+}
+
+function normalizeWhatsappAddress(value: string): string {
+  const raw = value.trim();
+  if (!raw) return "";
+  return raw.toLowerCase().startsWith("whatsapp:") ? raw.toLowerCase() : `whatsapp:${raw.toLowerCase()}`;
 }
 
 function digWhatsAppMessageId(body: Record<string, unknown>): string | null {

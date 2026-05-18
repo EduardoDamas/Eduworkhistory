@@ -59,21 +59,16 @@ The `app` service runs migrations then starts the HTTP server on port 3000. The 
 | `npx prisma migrate dev` | Create migrations (dev) |
 | `npx prisma db seed`     | Seed demo catalog products per tenant |
 
-## Phase 5 - WhatsApp Cloud API integration
+## Phase 5 - Twilio WhatsApp integration (tenant-scoped)
 
-### New env vars
-
-- `WHATSAPP_SEND_MODE`: `mock` (default) or `cloud`
-- `WHATSAPP_GRAPH_API_VERSION`: Meta Graph version used for send calls (default `v20.0`)
-- `WHATSAPP_REQUIRE_SIGNATURE`: `true/false` gate for `X-Hub-Signature-256` enforcement
-
-### New tenant-scoped WhatsApp account endpoints (require `x-api-key`)
+### Tenant-scoped WhatsApp account endpoints (require `x-api-key`)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/whatsapp/accounts` | Create/update tenant WhatsApp Cloud credentials. |
-| `GET` | `/whatsapp/accounts` | List configured WhatsApp account entries (token is masked). |
-| `PATCH` | `/whatsapp/accounts/:id` | Update account settings (`isActive`, token, verify token, etc.). |
+| `POST` | `/whatsapp/accounts` | Create/update tenant Twilio WhatsApp credentials. |
+| `GET` | `/whatsapp/accounts` | List configured tenant account entries (auth token masked). |
+| `PATCH` | `/whatsapp/accounts/:id` | Update account settings (`isActive`, Twilio SID/token, from number). |
+| `POST` | `/whatsapp/accounts/:id/test-send` | Tenant-scoped smoke send using tenant Twilio credentials. |
 
 Create account example:
 
@@ -82,90 +77,39 @@ curl -sS -X POST http://localhost:3000/whatsapp/accounts \
   -H "content-type: application/json" \
   -H "x-api-key: API_KEY" \
   -d '{
-    "phoneNumberId":"1234567890",
-    "businessAccountId":"9876543210",
-    "accessToken":"EAA...",
-    "verifyToken":"my-verify-token",
-    "appSecret":"my-app-secret",
+    "accountSid":"ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "whatsappFrom":"whatsapp:+5511999999999",
+    "sandboxJoinCode":"burn-apart",
     "isActive":true
   }'
 ```
 
-### WhatsApp webhook verification + tenant resolution
+### Tenant resolution for Twilio inbound webhook
 
-- `GET /webhooks/whatsapp` is public for Meta verification and validates `hub.verify_token` against configured tenant accounts.
-- `POST /webhooks/whatsapp` is accepted without auth middleware:
-  - resolves tenant by `phone_number_id` from payload when possible,
-  - falls back to `x-api-key`,
-  - optionally validates `X-Hub-Signature-256` when `WHATSAPP_REQUIRE_SIGNATURE=true`.
+`POST /webhooks/twilio/whatsapp` resolves tenant in this order:
 
-Verification example:
-
-```bash
-curl "http://localhost:3000/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=my-verify-token&hub.challenge=12345"
-```
+1. `AccountSid + To` (`whatsappFrom`) from Twilio payload
+2. `AccountSid`
+3. `To` (`whatsappFrom`)
+4. `x-api-key` fallback
 
 ### Outbound send behavior
 
 - Outbound messages are always stored in `whatsapp_messages`.
-- In `mock` mode, no external call is made.
-- In `cloud` mode, service sends to Meta Cloud API and stores provider response/error in `raw_payload` for retry/diagnostics.
-
-## Phase 6 - Real Meta WhatsApp Cloud API production readiness
-
-### Endpoint additions
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/whatsapp/accounts/:id/test-send` | Tenant-scoped smoke send. Uses real Meta send only when `WHATSAPP_SEND_MODE=cloud`; otherwise returns simulated success. |
-
-Example:
-
-```bash
-curl -sS -X POST http://localhost:3000/whatsapp/accounts/ACCOUNT_ID/test-send \
-  -H "content-type: application/json" \
-  -H "x-api-key: API_KEY" \
-  -d '{
-    "to":"5511999999999",
-    "message":"Teste de envio via WhatsApp Cloud API"
-  }'
-```
-
-### Real Meta setup checklist
-
-1. **Get `phone_number_id`**  
-   In Meta App Dashboard: `WhatsApp > API Setup > From` number block (shows `Phone number ID`).
-2. **Get token**  
-   - Temporary token: Meta API Setup page (for quick local tests).  
-   - Permanent token: create a System User token in Meta Business Manager with WhatsApp permissions.
-3. **Create/Update account in API**
-   - `POST /whatsapp/accounts` to create (or upsert tenant account)
-   - `PATCH /whatsapp/accounts/:id` to rotate token/update ids/secrets without exposing token in responses
-4. **Enable cloud mode**
-   - Set `.env`: `WHATSAPP_SEND_MODE=cloud`
-   - Keep `WHATSAPP_GRAPH_API_VERSION` aligned with your Meta app
-5. **Smoke test**
-   - Call `POST /whatsapp/accounts/:id/test-send`
-   - Check response for `providerMessageId` and `providerStatusCode`
-   - Check `whatsapp_messages` row for `raw_payload.provider`, `providerMessageId`, `providerStatusCode`, `providerError`
-6. **Webhook callback setup in Meta**
-   - Callback URL: `https://<your-domain>/webhooks/whatsapp`
-   - Verify token: same value configured in account `verifyToken`
-   - Subscribe to `messages` field in the WhatsApp webhook product
-7. **Webhook verify test**
-   - Meta sends `GET /webhooks/whatsapp?hub.mode=subscribe...`
-   - API responds with `hub.challenge` only when token matches a configured active account
+- Tenant credentials are used first (`/whatsapp/accounts` per tenant).
+- Global `.env` Twilio credentials are used only as local fallback.
+- If no credentials are available, send is simulated (`simulatedOutbound=true`).
 
 ### Provider persistence fields (`whatsapp_messages.raw_payload`)
 
-- `simulatedOutbound`: `true` in mock mode, `false` in cloud mode
-- `provider`: always `"meta"`
-- `providerMessageId`: populated on success when Meta returns a message id
-- `providerStatusCode`: HTTP status from Meta response
+- `simulatedOutbound`: `true` in mock mode, `false` on real Twilio send
+- `provider`: always `"twilio"`
+- `providerMessageId`: populated from Twilio `sid` on success
+- `providerStatusCode`: HTTP status from Twilio response
 - `providerError`: populated on failure with structured data:
   - `provider`
   - `statusCode`
-  - `errorCode`
   - `errorMessage`
   - `raw`
 

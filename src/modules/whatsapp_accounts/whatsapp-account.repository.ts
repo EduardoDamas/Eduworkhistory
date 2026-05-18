@@ -4,31 +4,28 @@ export const whatsappAccountRepository = {
   async upsertForTenant(
     tenantId: string,
     data: {
-      phoneNumberId: string;
-      businessAccountId: string;
-      accessToken: string;
-      verifyToken: string;
-      appSecret?: string | null;
+      accountSid: string;
+      authToken: string;
+      whatsappFrom: string;
+      sandboxJoinCode?: string | null;
       isActive?: boolean;
     },
   ) {
     return prisma.whatsAppAccount.upsert({
       where: { tenantId },
       update: {
-        phoneNumberId: data.phoneNumberId,
-        businessAccountId: data.businessAccountId,
-        accessToken: data.accessToken,
-        verifyToken: data.verifyToken,
-        appSecret: data.appSecret ?? null,
+        accountSid: data.accountSid,
+        authToken: data.authToken,
+        whatsappFrom: data.whatsappFrom,
+        sandboxJoinCode: data.sandboxJoinCode ?? null,
         isActive: data.isActive ?? true,
       },
       create: {
         tenantId,
-        phoneNumberId: data.phoneNumberId,
-        businessAccountId: data.businessAccountId,
-        accessToken: data.accessToken,
-        verifyToken: data.verifyToken,
-        appSecret: data.appSecret ?? null,
+        accountSid: data.accountSid,
+        authToken: data.authToken,
+        whatsappFrom: data.whatsappFrom,
+        sandboxJoinCode: data.sandboxJoinCode ?? null,
         isActive: data.isActive ?? true,
       },
     });
@@ -67,16 +64,23 @@ export const whatsappAccountRepository = {
     });
   },
 
-  async findByVerifyToken(token: string) {
+  async findActiveByAccountSid(accountSid: string) {
     return prisma.whatsAppAccount.findFirst({
-      where: { verifyToken: token, isActive: true },
+      where: { accountSid, isActive: true },
       include: { tenant: true },
     });
   },
 
-  async findByPhoneNumberId(phoneNumberId: string) {
+  async findActiveByAccountSidAndWhatsappFrom(accountSid: string, whatsappFrom: string) {
     return prisma.whatsAppAccount.findFirst({
-      where: { phoneNumberId, isActive: true },
+      where: { accountSid, whatsappFrom, isActive: true },
+      include: { tenant: true },
+    });
+  },
+
+  async findActiveByWhatsappFrom(whatsappFrom: string) {
+    return prisma.whatsAppAccount.findFirst({
+      where: { whatsappFrom, isActive: true },
       include: { tenant: true },
     });
   },

@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum OrderStatus {
@@ -127,19 +126,18 @@ model Tenant {
 model WhatsAppAccount {
   id                String   @id @default(uuid())
   tenantId          String   @unique @map("tenant_id")
-  phoneNumberId     String   @map("phone_number_id")
-  businessAccountId String   @map("business_account_id")
-  accessToken       String   @map("access_token")
-  verifyToken       String   @map("verify_token")
-  appSecret         String?  @map("app_secret")
+  accountSid        String   @map("account_sid")
+  authToken         String   @map("auth_token")
+  whatsappFrom      String   @map("whatsapp_from")
+  sandboxJoinCode   String?  @map("sandbox_join_code")
   isActive          Boolean  @default(true) @map("is_active")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@index([phoneNumberId])
-  @@index([verifyToken])
+  @@index([accountSid])
+  @@index([whatsappFrom])
   @@map("whatsapp_accounts")
 }
 

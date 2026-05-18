@@ -32,6 +32,32 @@ export function extractWhatsAppInboundMessage(payload: unknown): WhatsAppInbound
   if (payload === null || typeof payload !== "object") return null;
 
   const root = payload as Record<string, unknown>;
+  const twilioFrom = root.From;
+  const twilioBody = root.Body;
+  const twilioSid = root.MessageSid;
+  if (typeof twilioFrom === "string" && twilioFrom.trim()) {
+    const phone = twilioFrom.trim();
+    const text = typeof twilioBody === "string" ? twilioBody.trim() : "";
+    logger.info(
+      {
+        phone,
+        textLength: text.length,
+        messageType: "twilio_whatsapp",
+      },
+      "whatsapp_payload_extracted",
+    );
+    return {
+      phone,
+      text,
+      messageRaw: {
+        provider: "twilio",
+        from: phone,
+        body: text,
+        messageSid: typeof twilioSid === "string" ? twilioSid : null,
+      },
+    };
+  }
+
   const entry = root.entry;
   if (!Array.isArray(entry) || entry.length === 0) return null;
 

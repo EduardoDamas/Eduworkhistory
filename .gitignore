@@ -5,6 +5,12 @@ dist/
 .DS_Store
 coverage/
 
+# Prisma generated client (use @prisma/client from node_modules)
+src/generated/
+
+# TypeScript incremental build info
+frontend/tsconfig.tsbuildinfo
+
 # Next.js
 frontend/.next/
 out/

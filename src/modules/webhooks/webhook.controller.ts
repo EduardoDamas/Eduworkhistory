@@ -42,7 +42,7 @@ export const webhookController = {
 
   async handleTwilioWhatsapp(req: Request, res: Response): Promise<void> {
     try {
-      const result = webhookService.handleTwilioWhatsapp(req.body);
+      const result = await webhookService.handleTwilioWhatsapp(req);
       // Twilio retries aggressively; acknowledge fast.
       res.status(200).json(result);
     } catch (err) {

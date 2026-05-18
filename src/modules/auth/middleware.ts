@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import type { UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { logger } from "../../lib/logger.js";
+import { env } from "../../config/env.js";
 import { runWithTenant } from "./tenant-context.js";
 import type { TenantContext, TenantContextResolved } from "./types.js";
 
@@ -14,9 +15,78 @@ type RequestWithAuthUser = Request & {
   };
 };
 
+/**
+ * TEMPORARY local-dev only: skip API key / JWT when testing from localhost.
+ * Never enabled when NODE_ENV is production.
+ */
+function isDevAuthBypassEnabled(req: Request): boolean {
+  if (env.NODE_ENV === "production") return false;
+  if (env.NODE_ENV !== "development") return false;
+  if (!env.DEV_AUTH_BYPASS) return false;
+  return isLocalhostRequest(req);
+}
+
+function isLocalhostRequest(req: Request): boolean {
+  const host = (req.hostname ?? "").toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1") return true;
+
+  const ip = (req.ip ?? req.socket?.remoteAddress ?? "").toLowerCase();
+  return (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "::ffff:127.0.0.1" ||
+    ip.endsWith("127.0.0.1")
+  );
+}
+
+async function resolveDevBypassTenant(): Promise<TenantContext | null> {
+  const tenantId = env.DEV_TENANT_ID?.trim();
+  if (tenantId) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (tenant) return { id: tenant.id, name: tenant.name, apiKey: tenant.apiKey };
+  }
+
+  const first = await prisma.tenant.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!first) return null;
+  return { id: first.id, name: first.name, apiKey: first.apiKey };
+}
+
+function applyDevAuthBypass(req: Request, res: Response, next: NextFunction): void {
+  void resolveDevBypassTenant()
+    .then((tenant) => {
+      if (!tenant) {
+        res.status(401).json({
+          error:
+            "Dev auth bypass: no tenant in database. Run seed/migrations or set DEV_TENANT_ID in .env.",
+        });
+        return;
+      }
+
+      const ctx: TenantContextResolved = {
+        ...tenant,
+        resolvedBy: "dev_bypass",
+      };
+
+      logger.warn(
+        { tenantId: tenant.id, method: req.method, path: req.path },
+        "dev_auth_bypass_used",
+      );
+
+      runWithTenant(ctx, () => next());
+    })
+    .catch((err: unknown) => {
+      logger.error({ err }, "dev_auth_bypass_failed");
+      res.status(500).json({ error: "Authentication failed" });
+    });
+}
+
 export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
   const apiKey = req.header("x-api-key");
   if (!apiKey) {
+    if (isDevAuthBypassEnabled(req)) {
+      applyDevAuthBypass(req, res, next);
+      return;
+    }
     res.status(401).json({ error: "Missing x-api-key header" });
     return;
   }
@@ -25,6 +95,10 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
     .findUnique({ where: { apiKey } })
     .then((tenant) => {
       if (!tenant) {
+        if (isDevAuthBypassEnabled(req)) {
+          applyDevAuthBypass(req, res, next);
+          return;
+        }
         res.status(401).json({ error: "Invalid API key" });
         return;
       }
@@ -91,6 +165,11 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction): voi
   const apiKey = req.header("x-api-key");
   if (apiKey) {
     apiKeyAuth(req, res, next);
+    return;
+  }
+
+  if (isDevAuthBypassEnabled(req)) {
+    applyDevAuthBypass(req, res, next);
     return;
   }
 

@@ -52,4 +52,12 @@ export const env = {
   TWILIO_WHATSAPP_FROM: process.env.TWILIO_WHATSAPP_FROM ?? "whatsapp:+14155238886",
   TWILIO_WHATSAPP_TO: process.env.TWILIO_WHATSAPP_TO ?? "",
   TWILIO_SANDBOX_JOIN_CODE: process.env.TWILIO_SANDBOX_JOIN_CODE ?? "",
+
+  /**
+   * TEMPORARY local-dev only: allow localhost requests without x-api-key/JWT.
+   * Ignored when NODE_ENV=production.
+   */
+  DEV_AUTH_BYPASS: bool("DEV_AUTH_BYPASS", false),
+  /** Optional tenant id for dev auth bypass; defaults to first tenant in DB. */
+  DEV_TENANT_ID: process.env.DEV_TENANT_ID ?? "",
 };

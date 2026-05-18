@@ -9,11 +9,13 @@ export const whatsappAccountController = {
       const { id: tenantId } = getTenant();
       const body = req.body as Record<string, unknown>;
       const row = await whatsappAccountService.createOrUpdateForTenant(tenantId, {
-        phoneNumberId: String(body.phoneNumberId ?? ""),
-        businessAccountId: String(body.businessAccountId ?? ""),
-        accessToken: String(body.accessToken ?? ""),
-        verifyToken: String(body.verifyToken ?? ""),
-        appSecret: body.appSecret ? String(body.appSecret) : null,
+        accountSid: String(body.accountSid ?? ""),
+        authToken: String(body.authToken ?? ""),
+        whatsappFrom: String(body.whatsappFrom ?? ""),
+        sandboxJoinCode:
+          body.sandboxJoinCode === null || body.sandboxJoinCode === undefined
+            ? null
+            : String(body.sandboxJoinCode),
         isActive: typeof body.isActive === "boolean" ? body.isActive : true,
       });
       res.status(201).json(row);
@@ -43,12 +45,13 @@ export const whatsappAccountController = {
       }
       const body = req.body as Record<string, unknown>;
       const row = await whatsappAccountService.patchForTenant(tenantId, id, {
-        phoneNumberId: typeof body.phoneNumberId === "string" ? body.phoneNumberId : undefined,
-        businessAccountId:
-          typeof body.businessAccountId === "string" ? body.businessAccountId : undefined,
-        accessToken: typeof body.accessToken === "string" ? body.accessToken : undefined,
-        verifyToken: typeof body.verifyToken === "string" ? body.verifyToken : undefined,
-        appSecret: body.appSecret === null || typeof body.appSecret === "string" ? (body.appSecret as string | null) : undefined,
+        accountSid: typeof body.accountSid === "string" ? body.accountSid : undefined,
+        authToken: typeof body.authToken === "string" ? body.authToken : undefined,
+        whatsappFrom: typeof body.whatsappFrom === "string" ? body.whatsappFrom : undefined,
+        sandboxJoinCode:
+          body.sandboxJoinCode === null || typeof body.sandboxJoinCode === "string"
+            ? (body.sandboxJoinCode as string | null)
+            : undefined,
         isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
       });
       res.json(row);

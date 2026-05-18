@@ -34,6 +34,23 @@ cd frontend && npm run dev
 
 ## Twilio WhatsApp Sandbox
 
+Each tenant should configure its own Twilio credentials using `/whatsapp/accounts`:
+
+```bash
+curl -sS -X POST http://localhost:3000/whatsapp/accounts \
+  -H "content-type: application/json" \
+  -H "x-api-key: API_KEY" \
+  -d '{
+    "accountSid":"ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "whatsappFrom":"whatsapp:+5511999999999",
+    "sandboxJoinCode":"burn-apart",
+    "isActive":true
+  }'
+```
+
+Tenant credentials are used first. Global `TWILIO_*` env vars are fallback for local/dev only.
+
 1. From the tester WhatsApp number, send:
    - `join burn-apart`
 2. Send this message to Twilio sandbox number:

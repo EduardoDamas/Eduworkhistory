@@ -12,7 +12,7 @@ export type IngestWebhookResult = {
 
 export type WebhookTenantResolution = {
   tenantId: string;
-  resolvedBy: "api_key" | "phone_number_id";
+  resolvedBy: "api_key" | "phone_number_id" | "twilio_account_sid" | "twilio_whatsapp_from";
 };
 
 /** Minimal normalized shape (no channel-specific parsing in Phase 2). */
