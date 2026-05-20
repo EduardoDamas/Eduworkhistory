@@ -7,7 +7,20 @@ Multi-tenant Node.js + TypeScript service with PostgreSQL (Prisma), Redis (BullM
 - Node.js 20+
 - Docker (optional, for compose stack)
 
-## Local development
+## Project layout (the four moving parts)
+
+The repository ships **one backend service** that runs in two roles, plus an independent frontend:
+
+| Piece | What it is | Default port | Source |
+|-------|------------|--------------|--------|
+| **API** | Express HTTP server | `3000` | `src/index.ts` |
+| **Worker** | BullMQ background processor (same codebase) | — | `src/worker.ts` |
+| **Frontend** | Next.js 14 dashboard (separate package) | `3001` | `frontend/` |
+| **Infra** | PostgreSQL + Redis | `5432` / `6379` | `docker-compose.yml` |
+
+API and worker share the same code and database, but the worker does **not** listen on HTTP — it consumes queues. See [Worker process](#worker-process) below.
+
+## Local development — API + worker
 
 1. Copy environment file and adjust if needed (required before `npm install`, because `postinstall` runs `prisma generate`):
 
@@ -23,15 +36,46 @@ Multi-tenant Node.js + TypeScript service with PostgreSQL (Prisma), Redis (BullM
 
    `npx prisma migrate deploy`
 
-4. Run API and worker in separate terminals:
+4. Run API and worker in separate terminals (both from the repo root):
 
-   `npm run dev`
+   `npm run dev`           — starts the API on `http://localhost:3000`
 
-   `npm run dev:worker`
+   `npm run dev:worker`    — starts the queue worker
 
 5. Health check:
 
    `curl http://localhost:3000/health`
+
+## Local development — Frontend (Next.js dashboard)
+
+The frontend is a **separate Next.js app** under [frontend/](frontend/) and runs on port **3001**. From the repository root:
+
+```bash
+cd frontend
+cp .env.example .env.local      # only the first time
+npm install                     # only the first time
+npm run dev                     # starts http://localhost:3001
+```
+
+> ⚠️ `npm run dev` at the **repository root** starts the API, not the frontend. The frontend script lives inside `frontend/`.
+
+### Frontend modes — demo vs. live API
+
+`frontend/.env.local` has two flags that control how the dashboard talks to the backend:
+
+```
+NEXT_PUBLIC_API_URL=http://localhost:3000   # base URL of the Express API
+NEXT_PUBLIC_DEMO_MODE=true                  # true = mocked data, false = real API
+```
+
+- `NEXT_PUBLIC_DEMO_MODE=true` (default in `.env.example`): the dashboard uses the in-memory mocks in [frontend/lib/api.ts](frontend/lib/api.ts). The backend does **not** need to be running. Good for UI demos.
+- `NEXT_PUBLIC_DEMO_MODE=false`: every call hits `NEXT_PUBLIC_API_URL`. The API and worker must be running, and the user must be authenticated (Bearer JWT from the `/auth` flow).
+
+Restart `npm run dev` after editing `.env.local` so Next.js picks up the change.
+
+### What's covered by the UI today
+
+The dashboard currently has screens for auth/onboarding, orders, integrations health, billing, and tenant users. The **tenant WhatsApp account endpoints** (`POST/GET/PATCH /whatsapp/accounts`, `POST /whatsapp/accounts/:id/test-send`) and most `/comanda` and `/legacy` endpoints **do not yet have a UI** — exercise them with `curl`, Postman, or Insomnia using the examples in the phase sections below.
 
 ## Onboarding a tenant
 
@@ -39,13 +83,91 @@ Create a tenant (no API key required):
 
 `curl -X POST http://localhost:3000/tenants -H "content-type: application/json" -d "{\"name\":\"Demo Restaurant\"}"`
 
-The response includes `apiKey`. Send it on every protected request as header `x-api-key`.
+The response includes `apiKey`. Send it on every protected request as header `x-api-key`. For JWT-protected `/saas/*` routes, use the `/auth` flow to obtain a Bearer token.
+
+### Local-only auth bypass (development)
+
+For quick local testing, set in `.env`:
+
+```
+NODE_ENV=development
+DEV_AUTH_BYPASS=true
+DEV_TENANT_ID=<optional tenant id; defaults to the first tenant in the DB>
+```
+
+Localhost requests without `x-api-key` / `Authorization` headers are then resolved to that tenant. **Ignored when `NODE_ENV=production`** — see [src/modules/auth/middleware.ts](src/modules/auth/middleware.ts).
 
 ## Docker (app + postgres + redis + worker)
 
-`docker compose up --build`
+```bash
+docker compose up --build
+```
 
-The `app` service runs migrations then starts the HTTP server on port 3000. The `worker` service runs `dist/worker.js` and consumes **both** the `default` queue and the **`inbound-events`** queue.
+The `app` service runs migrations and starts the HTTP server on port 3000. The `worker` service runs `dist/worker.js` against the same Postgres/Redis.
+
+### Bringing up just the infrastructure
+
+If you're developing the API/worker with `npm run dev` / `npm run dev:worker` on the host, only start the dependencies in Docker:
+
+```bash
+docker compose up -d postgres redis
+```
+
+## Worker process
+
+`src/worker.ts` is a BullMQ consumer — it does **not** expose HTTP. It subscribes to three queues, all backed by Redis:
+
+| Queue | Purpose |
+|-------|---------|
+| `default` | Generic background jobs (used by the Phase 1 order smoke job). |
+| `inbound-events` | Asynchronous processing of webhooks ingested by `POST /webhooks/*` (WhatsApp/Twilio, iFood, 99food). For WhatsApp it also runs the Phase 3 conversation/order flow. |
+| `legacy-export` | Exports accepted orders to legacy comanda systems (Firebird/MSSQL) with retry/backoff. See Phase 8/9. |
+
+### `npm run dev:worker` vs. the Docker `worker` container
+
+They run the **same process** (`src/worker.ts`). The difference is execution context:
+
+| | `npm run dev:worker` | Docker `worker` service |
+|---|---------------------|-------------------------|
+| Source | `src/worker.ts` via `tsx watch` | Compiled `dist/worker.js` |
+| Hot reload | yes | no (rebuild required) |
+| Used for | Local development | Closer-to-production runs |
+
+Use **one or the other** — never both at the same time against the same Redis. Two workers will race for jobs and you'll see duplicated/interleaved processing.
+
+## Testing the WhatsApp account endpoints
+
+These four endpoints have no UI yet; use `curl`:
+
+```bash
+# 1. Create / upsert credentials for the tenant
+curl -sS -X POST http://localhost:3000/whatsapp/accounts \
+  -H "content-type: application/json" \
+  -H "x-api-key: API_KEY" \
+  -d '{
+    "accountSid":"ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "whatsappFrom":"whatsapp:+5511999999999",
+    "isActive":true
+  }'
+
+# 2. List (auth token is masked, only authTokenConfigured is returned)
+curl -sS http://localhost:3000/whatsapp/accounts -H "x-api-key: API_KEY"
+
+# 3. Partial update — only the fields you send are changed
+curl -sS -X PATCH http://localhost:3000/whatsapp/accounts/ACCOUNT_ID \
+  -H "content-type: application/json" \
+  -H "x-api-key: API_KEY" \
+  -d '{"isActive":false}'
+
+# 4. Smoke send through Twilio using the stored credentials
+curl -sS -X POST http://localhost:3000/whatsapp/accounts/ACCOUNT_ID/test-send \
+  -H "content-type: application/json" \
+  -H "x-api-key: API_KEY" \
+  -d '{"to":"whatsapp:+5511999999999","message":"hello from tenant"}'
+```
+
+Error responses include both a human-readable `error` and a stable machine-readable `code` (e.g. `WHATSAPP_ACCOUNT_NOT_FOUND`, `WHATSAPP_TEST_SEND_TO_REQUIRED`). Sending no body / invalid JSON returns `400`, not `500`.
 
 ## Scripts
 
