@@ -38,10 +38,21 @@ export const whatsappAccountService = {
     input: Partial<UpsertWhatsappAccountInput>,
   ) {
     const patch: Record<string, unknown> = {};
-    if (typeof input.accountSid === "string") patch.accountSid = input.accountSid.trim();
-    if (typeof input.authToken === "string") patch.authToken = input.authToken.trim();
-    if (typeof input.whatsappFrom === "string")
-      patch.whatsappFrom = normalizeWhatsappAddress(input.whatsappFrom);
+    if (typeof input.accountSid === "string") {
+      const v = input.accountSid.trim();
+      if (!v) throw new Error("WHATSAPP_ACCOUNT_SID_REQUIRED");
+      patch.accountSid = v;
+    }
+    if (typeof input.authToken === "string") {
+      const v = input.authToken.trim();
+      if (!v) throw new Error("WHATSAPP_AUTH_TOKEN_REQUIRED");
+      patch.authToken = v;
+    }
+    if (typeof input.whatsappFrom === "string") {
+      const v = input.whatsappFrom.trim();
+      if (!v) throw new Error("WHATSAPP_FROM_REQUIRED");
+      patch.whatsappFrom = normalizeWhatsappAddress(v);
+    }
     if (input.sandboxJoinCode !== undefined)
       patch.sandboxJoinCode = input.sandboxJoinCode?.trim() || null;
     if (typeof input.isActive === "boolean") patch.isActive = input.isActive;

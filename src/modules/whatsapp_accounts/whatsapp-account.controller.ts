@@ -3,11 +3,25 @@ import { getTenant } from "../auth/tenant-context.js";
 import { whatsappAccountService } from "./whatsapp-account.service.js";
 import { logger } from "../../lib/logger.js";
 
+function readBody(req: Request): Record<string, unknown> {
+  const raw = req.body;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+function paramId(req: Request): string {
+  const raw = req.params.id;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export const whatsappAccountController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const { id: tenantId } = getTenant();
-      const body = req.body as Record<string, unknown>;
+      const body = readBody(req);
       const row = await whatsappAccountService.createOrUpdateForTenant(tenantId, {
         accountSid: String(body.accountSid ?? ""),
         authToken: String(body.authToken ?? ""),
@@ -37,13 +51,12 @@ export const whatsappAccountController = {
   async patch(req: Request, res: Response): Promise<void> {
     try {
       const { id: tenantId } = getTenant();
-      const rawId = req.params.id;
-      const id = Array.isArray(rawId) ? rawId[0] : rawId;
+      const id = paramId(req);
       if (!id) {
         res.status(400).json({ error: "id is required" });
         return;
       }
-      const body = req.body as Record<string, unknown>;
+      const body = readBody(req);
       const row = await whatsappAccountService.patchForTenant(tenantId, id, {
         accountSid: typeof body.accountSid === "string" ? body.accountSid : undefined,
         authToken: typeof body.authToken === "string" ? body.authToken : undefined,
@@ -63,13 +76,12 @@ export const whatsappAccountController = {
   async testSend(req: Request, res: Response): Promise<void> {
     try {
       const { id: tenantId } = getTenant();
-      const rawId = req.params.id;
-      const id = Array.isArray(rawId) ? rawId[0] : rawId;
+      const id = paramId(req);
       if (!id) {
         res.status(400).json({ error: "id is required" });
         return;
       }
-      const body = req.body as Record<string, unknown>;
+      const body = readBody(req);
       const result = await whatsappAccountService.testSendForTenant(tenantId, id, {
         to: typeof body.to === "string" ? body.to : "",
         message: typeof body.message === "string" ? body.message : "",
@@ -81,18 +93,26 @@ export const whatsappAccountController = {
   },
 };
 
+const REQUIRED_FIELD_MESSAGES: Record<string, string> = {
+  WHATSAPP_ACCOUNT_SID_REQUIRED: "accountSid is required",
+  WHATSAPP_AUTH_TOKEN_REQUIRED: "authToken is required",
+  WHATSAPP_FROM_REQUIRED: "whatsappFrom is required",
+  WHATSAPP_TEST_SEND_TO_REQUIRED: "Field 'to' is required",
+  WHATSAPP_TEST_SEND_MESSAGE_REQUIRED: "Field 'message' is required",
+};
+
 function handle(err: unknown, res: Response, logMsg: string): void {
   const msg = err instanceof Error ? err.message : "";
-  if (msg.endsWith("_REQUIRED")) {
-    res.status(400).json({ error: msg });
+  if (msg in REQUIRED_FIELD_MESSAGES) {
+    res.status(400).json({ error: REQUIRED_FIELD_MESSAGES[msg], code: msg });
     return;
   }
   if (msg === "WHATSAPP_ACCOUNT_INACTIVE") {
-    res.status(400).json({ error: "WhatsApp account is inactive" });
+    res.status(400).json({ error: "WhatsApp account is inactive", code: msg });
     return;
   }
   if (msg === "WHATSAPP_ACCOUNT_NOT_FOUND") {
-    res.status(404).json({ error: "WhatsApp account not found" });
+    res.status(404).json({ error: "WhatsApp account not found", code: msg });
     return;
   }
   logger.error({ err }, logMsg);

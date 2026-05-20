@@ -47,6 +47,14 @@ export function createApp(): Application {
   app.use("/integrations", tenantAuth, createIntegrationRoutes());
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const httpErr = err as { statusCode?: number; status?: number; expose?: boolean; message?: string };
+    const status = httpErr?.statusCode ?? httpErr?.status;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      const message = httpErr.expose && httpErr.message ? httpErr.message : "Bad request";
+      logger.warn({ err }, "client_error");
+      res.status(status).json({ error: message });
+      return;
+    }
     logger.error({ err }, "unhandled_error");
     res.status(500).json({ error: "Internal server error" });
   });
